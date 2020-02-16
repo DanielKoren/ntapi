@@ -3,16 +3,19 @@
 #include "syscall.hpp"
 #include "ntdefs.h"
 
-#define DEBUG_PRINT FALSE
+#define DEBUG_PRINT TRUE
 
-OBJECT_ATTRIBUTES init_obj_attributes(const wchar_t* object_name)
+OBJECT_ATTRIBUTES init_obj_attributes(const wchar_t* object_name, bool string_parse = false)
 {
 	OBJECT_ATTRIBUTES	object_attributes{};
 	UNICODE_STRING		unicode_string{};
 
 	//For file I/O, the "\\?\" prefix to a path string tells the Windows APIs to disable all string parsing and to send the string that follows it straight to the file system.
 	wchar_t	fullpath[4096]{};
-	wcscat_s(fullpath, L"\\??\\");
+	if (string_parse)
+	{
+		wcscat_s(fullpath, L"\\??\\");
+	}
 	wcscat_s(fullpath, sizeof(fullpath), object_name);
 
 	using RtlInitUnicodeString_t = void (NTAPI*)(PUNICODE_STRING DestinationString, PCWSTR SourceString);
@@ -45,7 +48,7 @@ HANDLE ntapi::create_file(const wchar_t* file_path, file_creation create_disposi
 	HANDLE				file_handle = nullptr;
 	IO_STATUS_BLOCK		io_status_block{};
 
-	auto object_attributes = init_obj_attributes(file_path);
+	auto object_attributes = init_obj_attributes(file_path, true);
 
 	auto syscall_id = syscall::get_syscall_id("NtCreateFile");
 	auto status = do_syscall<NTSTATUS>(syscall_id,
@@ -71,7 +74,7 @@ HANDLE ntapi::create_file(const wchar_t* file_path, file_creation create_disposi
 
 bool ntapi::delete_file(const wchar_t* file_path)
 {
-	auto object_attributes = init_obj_attributes(file_path);
+	auto object_attributes = init_obj_attributes(file_path, true);
 
 	auto syscall_id = syscall::get_syscall_id("NtDeleteFile");
 	auto status = do_syscall<NTSTATUS>(syscall_id,
@@ -159,11 +162,8 @@ uint64_t ntapi::get_file_size(HANDLE handle)
 
 HANDLE ntapi::create_process(const wchar_t* process_name)
 {
-	/*
-		taken from https://github.com/Microwave89/createuserprocess
-		process gets executed but seems like PE sections are either missing or something.
-	*/
-	
+	/*https://github.com/Microwave89/createuserprocess*/
+
 	HANDLE process_handle = nullptr;
 	HANDLE thread_handle = nullptr;
 
@@ -217,13 +217,14 @@ HANDLE ntapi::create_process(const wchar_t* process_name)
 
 	if (!NT_SUCCESS(status))
 	{
-//#if DEBUG_PRINT
+#if DEBUG_PRINT
 		fprintf(stderr, "[!] NtCreateUserProcess failed [ 0x%.8X ]\n", status);
-//#endif
+#endif
 		return nullptr;
 	}
 
 	return process_handle;
+
 }
 
 HANDLE ntapi::open_process(const uint32_t process_id, ACCESS_MASK desired_access)
@@ -273,6 +274,40 @@ bool ntapi::terminate_process(HANDLE handle)
 	return true;
 }
 
+bool ntapi::suspend_process(HANDLE handle)
+{
+	auto syscall_id = syscall::get_syscall_id("NtSuspendProcess");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		handle);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtSuspendProcess failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return true;
+}
+
+bool ntapi::resume_process(HANDLE handle)
+{
+	auto syscall_id = syscall::get_syscall_id("NtResumeProcess");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		handle);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtResumeProcess failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return true;
+}
+
 HANDLE ntapi::create_thread(HANDLE handle, void* start_address, void* param)
 {
 	HANDLE thread_handle = nullptr;
@@ -298,6 +333,86 @@ HANDLE ntapi::create_thread(HANDLE handle, void* start_address, void* param)
 	}
 
 	return thread_handle;
+}
+
+HANDLE ntapi::open_thread(const uint32_t thread_id, ACCESS_MASK desired_access)
+{
+	HANDLE process_handle = nullptr;
+
+	CLIENT_ID client_id{};
+	client_id.UniqueProcess = nullptr;
+	client_id.UniqueThread = reinterpret_cast<HANDLE>(thread_id);;
+
+	OBJECT_ATTRIBUTES object_attributes{};
+	InitializeObjectAttributes(&object_attributes, 0, 0, 0, 0);
+
+	auto syscall_id = syscall::get_syscall_id("NtOpenThread");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		&process_handle,
+		desired_access,
+		&object_attributes,
+		&client_id);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtOpenThread failed [ 0x%.8X ]\n", status);
+#endif
+		return nullptr;
+	}
+
+	return process_handle;
+}
+
+bool ntapi::terminate_thread(HANDLE handle)
+{
+	auto syscall_id = syscall::get_syscall_id("NtTerminateThread");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		handle, 0);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtTerminateThread failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return true;
+}
+
+bool ntapi::suspend_thread(HANDLE handle)
+{
+	auto syscall_id = syscall::get_syscall_id("NtSuspendThread");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		handle);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtSuspendThread failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return true;
+}
+
+bool ntapi::resume_thread(HANDLE handle)
+{
+	auto syscall_id = syscall::get_syscall_id("NtResumeThread");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		handle);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtResumeThread failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return true;
 }
 
 bool ntapi::allocate_memory(HANDLE handle, void* address, size_t size)
@@ -385,6 +500,102 @@ bool ntapi::write_memory(HANDLE handle, void* address, void* buffer, size_t size
 	return true;
 }
 
+HANDLE ntapi::reg_open_key(const wchar_t* key, ACCESS_MASK desired_access)
+{
+	HANDLE				key_handle = nullptr;
+
+	auto object_attributes = init_obj_attributes(key);
+
+	auto syscall_id = syscall::get_syscall_id("NtOpenKey");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		&key_handle,
+		desired_access,
+		&object_attributes);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtOpenKey failed [ 0x%.8X ]\n", status);
+#endif
+		return nullptr;
+	}
+
+	return key_handle;
+}
+
+bool ntapi::reg_create_key(const wchar_t* key)
+{
+	HANDLE				key_handle = nullptr;
+	DWORD				disposition = 0;
+
+	auto object_attributes = init_obj_attributes(key);
+
+	auto syscall_id = syscall::get_syscall_id("NtCreateKey");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		&key_handle,
+		KEY_ALL_ACCESS,
+		&object_attributes,
+		0,
+		nullptr,
+		REG_OPTION_NON_VOLATILE,
+		&disposition
+		);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtCreateKey failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return true;
+}
+
+bool ntapi::reg_delete_key(HANDLE key_handle)
+{
+	auto syscall_id = syscall::get_syscall_id("NtDeleteKey");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		key_handle);
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtDeleteKey failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return key_handle;
+}
+
+bool ntapi::reg_set_value(HANDLE key_handle, const wchar_t* name, const wchar_t* data, const DWORD type)
+{
+	auto value_name = UNICODE_STRING{};
+	using RtlInitUnicodeString_t = void (NTAPI*)(PUNICODE_STRING DestinationString, PCWSTR SourceString);
+	auto RtlInitUnicodeString = reinterpret_cast<RtlInitUnicodeString_t>(GetProcAddress(GetModuleHandle("NTDLL"), "RtlInitUnicodeString"));
+	RtlInitUnicodeString(&value_name, name);
+
+	auto syscall_id = syscall::get_syscall_id("NtSetValueKey");
+	auto status = do_syscall<NTSTATUS>(syscall_id,
+		key_handle,
+		&value_name,
+		0,
+		type,
+		data,
+		(ULONG)wcslen(data) * sizeof(WCHAR));
+
+	if (!NT_SUCCESS(status))
+	{
+#if DEBUG_PRINT
+		fprintf(stderr, "[!] NtSetValueKey failed [ 0x%.8X ]\n", status);
+#endif
+		return false;
+	}
+
+	return key_handle;
+}
+
 uint32_t ntapi::get_process_id(const wchar_t* process_name)
 {
 	uint32_t process_id = 0;
@@ -439,4 +650,3 @@ uint32_t ntapi::get_process_id(const wchar_t* process_name)
 	VirtualFree(buffer, 0, MEM_RELEASE);
 	return process_id;
 }
-

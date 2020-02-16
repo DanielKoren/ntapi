@@ -11,7 +11,6 @@ inline bool is_handle_valid(HANDLE handle)
 
 namespace ntapi
 {
-
 	enum file_creation : ULONG
 	{
 		file_supersede = 0x00000000, // If file exists, deletes it before creation of new one.
@@ -33,13 +32,19 @@ namespace ntapi
 	bool write_file(HANDLE handle, void* data, DWORD size);
 	uint64_t get_file_size(HANDLE handle);
 
-	//PROCESS ~ create_process() broken
+	//PROCESS
 	HANDLE create_process(const wchar_t* process_name);
 	HANDLE open_process(const uint32_t process_id, ACCESS_MASK desired_access);
 	bool terminate_process(HANDLE handle);
+	bool suspend_process(HANDLE handle);
+	bool resume_process(HANDLE handle);
 
 	//THREAD
 	HANDLE create_thread(HANDLE handle, void* start_address, void* param);
+	HANDLE open_thread(const uint32_t thread_id, ACCESS_MASK desired_access);
+	bool terminate_thread(HANDLE handle);
+	bool suspend_thread(HANDLE handle);
+	bool resume_thread(HANDLE handle);
 
 	//MEMORY
 	bool allocate_memory(HANDLE handle, void* address, size_t size);
@@ -47,7 +52,12 @@ namespace ntapi
 	bool read_memory(HANDLE handle, void* address, void* buffer, size_t size);
 	bool write_memory(HANDLE handle, void* address, void* buffer, size_t size);
 
+	//REGISTRY - should start with '\\Registry\\Machine..' which is equivalent to accessing HKEY_LOCAL_MACHINE //docs.microsoft.com/en-us/windows-hardware/drivers/kernel/registry-key-object-routines
+	HANDLE reg_open_key(const wchar_t* key, ACCESS_MASK desired_access);
+	bool reg_create_key(const wchar_t* key);
+	bool reg_delete_key(HANDLE key_handle);
+	bool reg_set_value(HANDLE key_handle, const wchar_t* name, const wchar_t* data, const DWORD type);
+
 	//
 	uint32_t get_process_id(const wchar_t* image_name);
-
 }
